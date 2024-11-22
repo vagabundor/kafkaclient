@@ -1,4 +1,4 @@
-module kafkaclient
+module github.com/vagabundor/kafkaclient
 
 go 1.23.1
 
