@@ -89,14 +89,24 @@ func (kc *KafkaClient) SendBatch(batch []*sarama.ProducerMessage, topic string) 
 			return nil
 		}
 
+		// Handle producer errors
 		var producerErrors sarama.ProducerErrors
 		if errors.As(err, &producerErrors) {
+			var failedMessages []*sarama.ProducerMessage
 			for _, pe := range producerErrors {
+				// Log details of each failed message
 				log.Printf("Failed message: topic=%s, value=%v, error=%v", pe.Msg.Topic, pe.Msg.Value, pe.Err)
+				// Add only failed messages to the next batch
+				failedMessages = append(failedMessages, pe.Msg)
 			}
+			batch = failedMessages
+			log.Printf("Retrying to send %d failed messages", len(failedMessages))
+		} else {
+			// Log and handle unexpected errors
+			log.Printf("Unexpected error when sending batch to Kafka: %v", err)
+			kc.isReady.Store(false)
 		}
 
-		log.Printf("Retrying to send batch of %d messages", len(batch))
 		time.Sleep(kc.retryInterval)
 	}
 
