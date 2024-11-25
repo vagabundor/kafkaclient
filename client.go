@@ -21,7 +21,7 @@ type KafkaClient struct {
 }
 
 // NewKafkaClient creates a new KafkaClient instance.
-func NewKafkaClientWithConfig(broker string, maxRetries int, retryInterval time.Duration, config *sarama.Config) (*KafkaClient, error) {
+func NewKafkaClient(broker string, maxRetries int, retryInterval time.Duration, config *sarama.Config) (*KafkaClient, error) {
 	if config == nil {
 		config = sarama.NewConfig()
 		config.Producer.Return.Successes = true
