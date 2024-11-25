@@ -13,6 +13,7 @@ import (
 
 type KafkaClient struct {
 	producer      sarama.SyncProducer
+	config        *sarama.Config
 	isReady       atomic.Value
 	kafkaBroker   string
 	maxRetries    int
@@ -20,11 +21,18 @@ type KafkaClient struct {
 }
 
 // NewKafkaClient creates a new KafkaClient instance.
-func NewKafkaClient(broker string, maxRetries int, retryInterval time.Duration) (*KafkaClient, error) {
+func NewKafkaClientWithConfig(broker string, maxRetries int, retryInterval time.Duration, config *sarama.Config) (*KafkaClient, error) {
+	if config == nil {
+		config = sarama.NewConfig()
+		config.Producer.Return.Successes = true
+		config.Producer.RequiredAcks = sarama.WaitForLocal
+	}
+
 	client := &KafkaClient{
 		kafkaBroker:   broker,
 		maxRetries:    maxRetries,
 		retryInterval: retryInterval,
+		config:        config, // Сохраняем конфигурацию в структуре
 	}
 
 	err := client.connect()
@@ -38,15 +46,11 @@ func NewKafkaClient(broker string, maxRetries int, retryInterval time.Duration) 
 
 // connect establishes a connection to Kafka.
 func (kc *KafkaClient) connect() error {
-	config := sarama.NewConfig()
-	config.Producer.Return.Successes = true
-	config.Producer.RequiredAcks = sarama.WaitForLocal
-
 	attemptCount := 0
 
 	for i := 0; i < kc.maxRetries || kc.maxRetries == 0; i++ {
 		attemptCount++
-		producer, err := sarama.NewSyncProducer([]string{kc.kafkaBroker}, config)
+		producer, err := sarama.NewSyncProducer([]string{kc.kafkaBroker}, kc.config)
 		if err == nil {
 			kc.producer = producer
 			log.Printf("Connected to Kafka after %d attempt(s)\n", attemptCount)
