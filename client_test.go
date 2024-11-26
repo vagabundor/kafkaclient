@@ -2,7 +2,6 @@ package kafkaclient
 
 import (
 	"testing"
-	"time"
 
 	"github.com/IBM/sarama"
 	"github.com/IBM/sarama/mocks"
@@ -15,11 +14,10 @@ func TestKafkaClientSendBatch_Success(t *testing.T) {
 	// Expect a successful message send
 	mockProducer.ExpectSendMessageAndSucceed()
 
+	// Create client manually to inject mock producer
 	client := &KafkaClient{
-		producer:      mockProducer,
-		kafkaBroker:   "localhost:9092",
-		maxRetries:    3,
-		retryInterval: 1 * time.Second,
+		producer: mockProducer,
+		logger:   &StdLogger{},
 	}
 	client.isReady.Store(true)
 
@@ -46,11 +44,10 @@ func TestKafkaClientSendBatch_Failure(t *testing.T) {
 		mockProducer.ExpectSendMessageAndFail(sarama.ErrOutOfBrokers)
 	}
 
+	// Create client manually to inject mock producer
 	client := &KafkaClient{
-		producer:      mockProducer,
-		kafkaBroker:   "localhost:9092",
-		maxRetries:    3,
-		retryInterval: 1 * time.Second,
+		producer: mockProducer,
+		logger:   &StdLogger{},
 	}
 	client.isReady.Store(true)
 
@@ -70,5 +67,33 @@ func TestKafkaClientSendBatch_Failure(t *testing.T) {
 	// Assert: Client should not be ready after failure
 	if client.IsReady() {
 		t.Errorf("Expected client to be not ready after failure")
+	}
+}
+
+func TestKafkaClientSendBatch_RetryPartialFailures(t *testing.T) {
+	mockProducer := mocks.NewSyncProducer(t, nil)
+
+	// Expect partial success and failure
+	mockProducer.ExpectSendMessageAndSucceed()
+	mockProducer.ExpectSendMessageAndFail(sarama.ErrOutOfBrokers)
+
+	client := &KafkaClient{
+		producer: mockProducer,
+		logger:   &StdLogger{},
+	}
+	client.isReady.Store(true)
+
+	// Batch with multiple messages
+	batch := []*sarama.ProducerMessage{
+		{Topic: "test-topic", Value: sarama.StringEncoder("message-1")},
+		{Topic: "test-topic", Value: sarama.StringEncoder("message-2")},
+	}
+
+	// Act: Send batch
+	err := client.SendBatch(batch, "test-topic")
+
+	// Assert: Error is expected due to partial failure
+	if err == nil {
+		t.Errorf("Expected error, got nil")
 	}
 }

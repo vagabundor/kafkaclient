@@ -18,21 +18,46 @@ type KafkaClient struct {
 	kafkaBroker   string
 	maxRetries    int
 	retryInterval time.Duration
+	logger        Logger
+}
+
+// Logger interface
+type Logger interface {
+	Debugf(format string, args ...interface{})
+	Infof(format string, args ...interface{})
+	Warnf(format string, args ...interface{})
+	Errorf(format string, args ...interface{})
+}
+
+type StdLogger struct{}
+
+func (l *StdLogger) Debugf(format string, args ...interface{}) {
+	log.Printf("[DEBUG] "+format, args...)
+}
+func (l *StdLogger) Infof(format string, args ...interface{}) { log.Printf("[INFO] "+format, args...) }
+func (l *StdLogger) Warnf(format string, args ...interface{}) { log.Printf("[WARN] "+format, args...) }
+func (l *StdLogger) Errorf(format string, args ...interface{}) {
+	log.Printf("[ERROR] "+format, args...)
 }
 
 // NewKafkaClient creates a new KafkaClient instance.
-func NewKafkaClient(broker string, maxRetries int, retryInterval time.Duration, config *sarama.Config) (*KafkaClient, error) {
+func NewKafkaClient(broker string, maxRetries int, retryInterval time.Duration, config *sarama.Config, logger Logger) (*KafkaClient, error) {
 	if config == nil {
 		config = sarama.NewConfig()
 		config.Producer.Return.Successes = true
 		config.Producer.RequiredAcks = sarama.WaitForLocal
 	}
 
+	if logger == nil {
+		logger = &StdLogger{}
+	}
+
 	client := &KafkaClient{
 		kafkaBroker:   broker,
 		maxRetries:    maxRetries,
 		retryInterval: retryInterval,
-		config:        config, // Сохраняем конфигурацию в структуре
+		config:        config,
+		logger:        logger,
 	}
 
 	err := client.connect()
@@ -53,14 +78,14 @@ func (kc *KafkaClient) connect() error {
 		producer, err := sarama.NewSyncProducer([]string{kc.kafkaBroker}, kc.config)
 		if err == nil {
 			kc.producer = producer
-			log.Printf("Connected to Kafka after %d attempt(s)\n", attemptCount)
+			kc.logger.Infof("Connected to Kafka after %d attempt(s)", attemptCount)
 			return nil
 		}
 
 		if kc.maxRetries == 0 {
-			log.Printf("Failed to connect to Kafka (attempt %d/∞): %v\n", attemptCount, err)
+			kc.logger.Warnf("Failed to connect to Kafka (attempt %d/∞): %v", attemptCount, err)
 		} else {
-			log.Printf("Failed to connect to Kafka (attempt %d/%d): %v\n", attemptCount, kc.maxRetries, err)
+			kc.logger.Warnf("Failed to connect to Kafka (attempt %d/%d): %v", attemptCount, kc.maxRetries, err)
 		}
 
 		time.Sleep(kc.retryInterval)
@@ -80,15 +105,17 @@ func (kc *KafkaClient) IsReady() bool {
 
 // SendBatch sends a batch of messages to Kafka with retries.
 func (kc *KafkaClient) SendBatch(batch []*sarama.ProducerMessage, topic string) error {
+	var failedMessages []*sarama.ProducerMessage
+
 	for i := 0; i < kc.maxRetries || kc.maxRetries == 0; i++ {
 		if !kc.ensureConnected() {
-			log.Println("Failed to connect to Kafka. Aborting batch send.")
+			kc.logger.Errorf("Failed to connect to Kafka. Aborting batch send.")
 			return errors.New("kafka connection failed")
 		}
 
 		err := kc.producer.SendMessages(batch)
 		if err == nil {
-			log.Printf("Batch of %d messages sent to Kafka topic(%s)\n", len(batch), topic)
+			kc.logger.Infof("Batch of %d messages sent to Kafka topic(%s)", len(batch), topic)
 			kc.isReady.Store(true)
 			return nil
 		}
@@ -96,25 +123,26 @@ func (kc *KafkaClient) SendBatch(batch []*sarama.ProducerMessage, topic string) 
 		// Handle producer errors
 		var producerErrors sarama.ProducerErrors
 		if errors.As(err, &producerErrors) {
-			var failedMessages []*sarama.ProducerMessage
+			failedMessages = failedMessages[:0] // Reset failedMessages slice
 			for _, pe := range producerErrors {
-				// Log details of each failed message
-				log.Printf("Failed message: topic=%s, value=%v, error=%v", pe.Msg.Topic, pe.Msg.Value, pe.Err)
-				// Add only failed messages to the next batch
+				kc.logger.Debugf("Failed message: topic=%s, value=%v, error=%v", pe.Msg.Topic, pe.Msg.Value, pe.Err)
+				// Collect only failed messages
 				failedMessages = append(failedMessages, pe.Msg)
 			}
 			batch = failedMessages
-			log.Printf("Retrying to send %d failed messages", len(failedMessages))
+			kc.logger.Warnf("Retrying to send %d failed messages", len(failedMessages))
 		} else {
-			// Log and handle unexpected errors
-			log.Printf("Unexpected error when sending batch to Kafka: %v", err)
+			kc.logger.Errorf("Unexpected error when sending batch to Kafka: %v", err)
 			kc.isReady.Store(false)
+			break
 		}
 
 		time.Sleep(kc.retryInterval)
 	}
 
-	log.Println("Failed to send batch to Kafka after retries")
+	if len(failedMessages) > 0 {
+		kc.logger.Errorf("Failed to send %d messages to Kafka after retries", len(failedMessages))
+	}
 	kc.isReady.Store(false)
 	return errors.New("failed to send batch after retries")
 }
@@ -130,7 +158,7 @@ func (kc *KafkaClient) StartBatchSender(ringBuffer *kafkabuff.RingBuffer, batchS
 					batch := ringBuffer.GetBatch(batchSize)
 					err := kc.SendBatch(batch, kafkaTopic)
 					if err != nil {
-						log.Printf("Error sending batch: %v", err)
+						kc.logger.Errorf("Error sending batch: %v", err)
 					}
 				}
 			default:
@@ -138,7 +166,7 @@ func (kc *KafkaClient) StartBatchSender(ringBuffer *kafkabuff.RingBuffer, batchS
 					batch := ringBuffer.GetBatch(batchSize)
 					err := kc.SendBatch(batch, kafkaTopic)
 					if err != nil {
-						log.Printf("Error sending batch: %v", err)
+						kc.logger.Errorf("Error sending batch: %v", err)
 					}
 				}
 				time.Sleep(50 * time.Millisecond)
@@ -150,10 +178,10 @@ func (kc *KafkaClient) StartBatchSender(ringBuffer *kafkabuff.RingBuffer, batchS
 // ensureConnected checks the connection to Kafka and tries to reconnect if necessary.
 func (kc *KafkaClient) ensureConnected() bool {
 	if kc.producer == nil {
-		log.Println("Producer is not initialized. Trying to reconnect.")
+		kc.logger.Infof("Producer is not initialized. Trying to reconnect.")
 		err := kc.connect()
 		if err != nil {
-			log.Printf("Failed to reconnect to Kafka: %v\n", err)
+			kc.logger.Errorf("Failed to reconnect to Kafka: %v\n", err)
 			return false
 		}
 		kc.isReady.Store(true)
