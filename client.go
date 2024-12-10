@@ -15,7 +15,7 @@ type KafkaClient struct {
 	producer      sarama.SyncProducer
 	config        *sarama.Config
 	isReady       atomic.Value
-	kafkaBroker   string
+	kafkaBrokers  []string
 	maxRetries    int
 	retryInterval time.Duration
 	logger        Logger
@@ -41,7 +41,7 @@ func (l *StdLogger) Errorf(format string, args ...interface{}) {
 }
 
 // NewKafkaClient creates a new KafkaClient instance.
-func NewKafkaClient(broker string, maxRetries int, retryInterval time.Duration, config *sarama.Config, logger Logger) (*KafkaClient, error) {
+func NewKafkaClient(brokers []string, maxRetries int, retryInterval time.Duration, config *sarama.Config, logger Logger) (*KafkaClient, error) {
 	if config == nil {
 		config = sarama.NewConfig()
 		config.Producer.Return.Successes = true
@@ -53,7 +53,7 @@ func NewKafkaClient(broker string, maxRetries int, retryInterval time.Duration, 
 	}
 
 	client := &KafkaClient{
-		kafkaBroker:   broker,
+		kafkaBrokers:  brokers,
 		maxRetries:    maxRetries,
 		retryInterval: retryInterval,
 		config:        config,
@@ -75,7 +75,7 @@ func (kc *KafkaClient) connect() error {
 
 	for i := 0; i < kc.maxRetries || kc.maxRetries == 0; i++ {
 		attemptCount++
-		producer, err := sarama.NewSyncProducer([]string{kc.kafkaBroker}, kc.config)
+		producer, err := sarama.NewSyncProducer(kc.kafkaBrokers, kc.config)
 		if err == nil {
 			kc.producer = producer
 			kc.logger.Infof("Connected to Kafka after %d attempt(s)", attemptCount)
