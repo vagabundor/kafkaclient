@@ -27,7 +27,7 @@ func TestKafkaClientSendBatch_Success(t *testing.T) {
 	}
 
 	// Act: Send batch
-	err := client.SendBatch(batch, "test-topic")
+	err := client.SendBatch(batch)
 
 	// Assert: No error expected
 	if err != nil {
@@ -57,7 +57,7 @@ func TestKafkaClientSendBatch_Failure(t *testing.T) {
 	}
 
 	// Act: Send batch
-	err := client.SendBatch(batch, "test-topic")
+	err := client.SendBatch(batch)
 
 	// Assert: Error is expected
 	if err == nil {
@@ -90,7 +90,7 @@ func TestKafkaClientSendBatch_RetryPartialFailures(t *testing.T) {
 	}
 
 	// Act: Send batch
-	err := client.SendBatch(batch, "test-topic")
+	err := client.SendBatch(batch)
 
 	// Assert: Error is expected due to partial failure
 	if err == nil {

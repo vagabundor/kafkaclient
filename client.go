@@ -104,7 +104,7 @@ func (kc *KafkaClient) IsReady() bool {
 }
 
 // SendBatch sends a batch of messages to Kafka with retries.
-func (kc *KafkaClient) SendBatch(batch []*sarama.ProducerMessage, topic string) error {
+func (kc *KafkaClient) SendBatch(batch []*sarama.ProducerMessage) error {
 	var failedMessages []*sarama.ProducerMessage
 
 	for i := 0; i < kc.maxRetries || kc.maxRetries == 0; i++ {
@@ -115,7 +115,7 @@ func (kc *KafkaClient) SendBatch(batch []*sarama.ProducerMessage, topic string) 
 
 		err := kc.producer.SendMessages(batch)
 		if err == nil {
-			kc.logger.Infof("Batch of %d messages sent to Kafka topic(%s)", len(batch), topic)
+			kc.logger.Infof("Batch of %d messages sent to Kafka", len(batch))
 			kc.isReady.Store(true)
 			return nil
 		}
@@ -148,7 +148,7 @@ func (kc *KafkaClient) SendBatch(batch []*sarama.ProducerMessage, topic string) 
 }
 
 // StartBatchSender starts sending messages from the ring buffer to Kafka.
-func (kc *KafkaClient) StartBatchSender(ringBuffer *kafkabuff.RingBuffer, batchSize int, interval time.Duration, kafkaTopic string) {
+func (kc *KafkaClient) StartBatchSender(ringBuffer *kafkabuff.RingBuffer, batchSize int, interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	go func() {
 		for {
@@ -156,7 +156,7 @@ func (kc *KafkaClient) StartBatchSender(ringBuffer *kafkabuff.RingBuffer, batchS
 			case <-ticker.C:
 				if ringBuffer.Size() > 0 {
 					batch := ringBuffer.GetBatch(batchSize)
-					err := kc.SendBatch(batch, kafkaTopic)
+					err := kc.SendBatch(batch)
 					if err != nil {
 						kc.logger.Errorf("Error sending batch: %v", err)
 					}
@@ -164,7 +164,7 @@ func (kc *KafkaClient) StartBatchSender(ringBuffer *kafkabuff.RingBuffer, batchS
 			default:
 				if ringBuffer.Size() >= batchSize {
 					batch := ringBuffer.GetBatch(batchSize)
-					err := kc.SendBatch(batch, kafkaTopic)
+					err := kc.SendBatch(batch)
 					if err != nil {
 						kc.logger.Errorf("Error sending batch: %v", err)
 					}
