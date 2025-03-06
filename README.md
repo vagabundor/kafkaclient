@@ -9,6 +9,7 @@ KafkaClient is a Go library designed to simplify and enhance interactions with A
 - **Ring Buffer Support**: Integrates with `kafkabuff` for optimized buffering and flow control.
 - **Customizable Logger**: Plug in your logger or use the default standard logger.
 - **Readiness State**: Track Kafka client's readiness state for better monitoring and resilience.
+- **Prometheus Metrics**: Built-in Prometheus metrics for tracking sent, failed, and retried messages.
 
 ## Installation
 
@@ -23,9 +24,8 @@ package main
 
 import (
     "time"
-
     "github.com/IBM/sarama"
-    "github.com/vagabundor/kafkaclient"
+    "github.com/vagabundor/kafkaclient/v2"
 )
 
 func main() {
@@ -52,7 +52,7 @@ messages := []*sarama.ProducerMessage{
     {Topic: "example-topic", Value: sarama.StringEncoder("Message 2")},
 }
 
-err := client.SendBatch(messages, "example-topic")
+err := client.SendBatch(messages)
 if err != nil {
     println("Failed to send messages:", err)
 }
@@ -61,11 +61,18 @@ if err != nil {
 ```go
 import "github.com/vagabundor/kafkabuff"
 
-ringBuffer := kafkabuff.NewRingBuffer(1000) // Create a ring buffer with a capacity of 1000
+ingBuffer := kafkabuff.NewRingBuffer(1000) // Create a ring buffer with a capacity of 1000
 ringBuffer.Add(&sarama.ProducerMessage{Topic: "example-topic", Value: sarama.StringEncoder("Message")})
 
-client.StartBatchSender(ringBuffer, 10, time.Second, "example-topic")
+client.StartBatchSender(ringBuffer, 10, time.Second)
 ```
+## Prometheus Metrics
+
+KafkaClient exposes Prometheus metrics to monitor message delivery:
+- **kafka_messages_sent_total**: Number of successfully sent messages.
+- **kafka_messages_failed_total**: Number of messages that failed to be sent after retries.
+- **kafka_messages_retried_total**: Number of message send attempts including retries.
+
 ## Configuration Options
 - **Brokers:** Kafka broker addresses (e.g., []string{"localhost:9092"}).
 - **Retries:** Maximum number of retry attempts for connecting or sending messages.
