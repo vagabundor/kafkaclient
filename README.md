@@ -13,7 +13,7 @@ KafkaClient is a Go library designed to simplify and enhance interactions with A
 ## Installation
 
 ```bash
-go get github.com/vagabundor/kafkaclient
+go get github.com/vagabundor/kafkaclient/v2
 ```
 ## Usage
 Creating a Kafka Client
