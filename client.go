@@ -9,7 +9,38 @@ import (
 
 	"github.com/IBM/sarama"
 	"github.com/vagabundor/kafkabuff"
+
+	"github.com/prometheus/client_golang/prometheus"
 )
+
+var (
+	kafkaMessagesSent = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "kafka_messages_sent_total",
+			Help: "Total number of messages successfully sent to Kafka.",
+		},
+	)
+
+	kafkaMessagesFailed = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "kafka_messages_failed_total",
+			Help: "Total number of messages failed to be sent to Kafka.",
+		},
+	)
+
+	kafkaMessagesRetried = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "kafka_messages_retried_total",
+			Help: "Total number of message send attempts including retries.",
+		},
+	)
+)
+
+func init() {
+	prometheus.MustRegister(kafkaMessagesSent)
+	prometheus.MustRegister(kafkaMessagesFailed)
+	prometheus.MustRegister(kafkaMessagesRetried)
+}
 
 type KafkaClient struct {
 	producer      sarama.SyncProducer
@@ -107,14 +138,19 @@ func (kc *KafkaClient) IsReady() bool {
 func (kc *KafkaClient) SendBatch(batch []*sarama.ProducerMessage) error {
 	var failedMessages []*sarama.ProducerMessage
 
-	for i := 0; i < kc.maxRetries || kc.maxRetries == 0; i++ {
+	for attempt := 0; attempt < kc.maxRetries || kc.maxRetries == 0; attempt++ {
 		if !kc.ensureConnected() {
 			kc.logger.Errorf("Failed to connect to Kafka. Aborting batch send.")
 			return errors.New("kafka connection failed")
 		}
 
+		if attempt > 0 {
+			kafkaMessagesRetried.Add(float64(len(batch)))
+		}
+
 		err := kc.producer.SendMessages(batch)
 		if err == nil {
+			kafkaMessagesSent.Add(float64(len(batch)))
 			kc.logger.Infof("Batch of %d messages sent to Kafka", len(batch))
 			kc.isReady.Store(true)
 			return nil
@@ -141,6 +177,7 @@ func (kc *KafkaClient) SendBatch(batch []*sarama.ProducerMessage) error {
 	}
 
 	if len(failedMessages) > 0 {
+		kafkaMessagesFailed.Add(float64(len(batch)))
 		kc.logger.Errorf("Failed to send %d messages to Kafka after retries", len(failedMessages))
 	}
 	kc.isReady.Store(false)
